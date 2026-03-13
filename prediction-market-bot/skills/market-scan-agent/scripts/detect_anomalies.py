@@ -46,9 +46,9 @@ def compute_category_medians(markets: list[dict]) -> dict[str, float]:
 def score_market(market: dict, category_medians: dict[str, float]) -> dict:
     flags: list[str] = []
 
-    yes_bid = float(market.get("yes_bid") or 0)
-    yes_ask = float(market.get("yes_ask") or 0)
-    prev_bid = float(market.get("previous_yes_bid") or yes_bid)
+    yes_bid = float(market.get("yes_bid_dollars") or 0)
+    yes_ask = float(market.get("yes_ask_dollars") or 0)
+    prev_bid = float(market.get("previous_yes_bid_dollars") or yes_bid)
     spread = market.get("_spread", yes_ask - yes_bid)
     vol_24h = market.get("_vol_24h_fp", float(market.get("volume_24h_fp") or 0))
     hours_to_close = market.get("_hours_to_close", 999.0)

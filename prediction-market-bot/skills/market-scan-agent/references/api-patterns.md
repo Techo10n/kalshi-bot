@@ -96,13 +96,13 @@ All dollar-denominated fields are returned as **strings** representing decimal d
 | `ticker` | string | Unique market ID, e.g. `INXD-24DEC31-B4800` |
 | `title` | string | Human-readable market question |
 | `status` | string | `open`, `closed`, `settled` |
-| `yes_bid` | string | Best bid for YES contracts, e.g. `"0.5600"` |
-| `yes_ask` | string | Best ask for YES contracts, e.g. `"0.5900"` |
-| `no_bid` | string | Best bid for NO contracts |
-| `no_ask` | string | Best ask for NO contracts |
-| `last_price` | string | Last traded price (dollars) |
-| `previous_yes_bid` | string | YES bid from previous trading session |
-| `previous_yes_ask` | string | YES ask from previous trading session |
+| `yes_bid_dollars` | string | Best bid for YES contracts, e.g. `"0.5600"` |
+| `yes_ask_dollars` | string | Best ask for YES contracts, e.g. `"0.5900"` |
+| `no_bid_dollars` | string | Best bid for NO contracts |
+| `no_ask_dollars` | string | Best ask for NO contracts |
+| `last_price_dollars` | string | Last traded price (dollars) |
+| `previous_yes_bid_dollars` | string | YES bid from previous trading session |
+| `previous_yes_ask_dollars` | string | YES ask from previous trading session |
 | `volume` | int | Total contracts traded (lifetime) |
 | `volume_24h` | int | Contracts traded in last 24 hours |
 | `open_interest` | int | Open contracts currently outstanding |
@@ -194,8 +194,9 @@ but the scanner (Step 1) uses REST polling for simplicity and reliability.
 
 ## Common Gotchas
 
-1. **String → float:** `float(market["yes_bid"])` not `market["yes_bid"] * 100`.
-2. **Missing fields:** Some markets lack `previous_yes_bid` — always use `.get()` with a default.
+1. **String → float:** `float(market["yes_bid_dollars"])` not `market["yes_bid_dollars"] * 100`.
+2. **Missing fields:** Some markets lack `previous_yes_bid_dollars` — always use `.get()` with a default.
 3. **Close time parsing:** Use `datetime.fromisoformat(close_time.replace("Z", "+00:00"))`.
-4. **Volume vs dollar volume:** `volume_24h` is contract count; `volume_24h_fp` is dollar value.
-5. **Spread calculation:** `spread = float(yes_ask) - float(yes_bid)`, not from the orderbook.
+4. **Volume vs dollar volume:** `volume_fp` is lifetime dollar volume; `volume_24h_fp` is 24h dollar value — both returned as strings.
+5. **Spread calculation:** `spread = float(yes_ask_dollars) - float(yes_bid_dollars)`, not from the orderbook.
+6. **`_dollars` suffix:** All price fields in the v2 API use the `_dollars` suffix (e.g. `yes_bid_dollars`, `no_ask_dollars`, `last_price_dollars`). Do not omit the suffix.

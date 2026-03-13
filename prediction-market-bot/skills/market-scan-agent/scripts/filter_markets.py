@@ -53,9 +53,9 @@ def passes_filters(market: dict) -> tuple[bool, str]:
     if oi < MIN_OPEN_INTEREST:
         return False, f"low_open_interest={oi:.0f}"
 
-    # Spread
-    yes_bid = float(market.get("yes_bid") or 0)
-    yes_ask = float(market.get("yes_ask") or 0)
+    # Spread (field names use _dollars suffix in Kalshi v2 API)
+    yes_bid = float(market.get("yes_bid_dollars") or 0)
+    yes_ask = float(market.get("yes_ask_dollars") or 0)
     if yes_bid <= 0 or yes_ask <= 0:
         return False, "missing_bid_ask"
     spread = yes_ask - yes_bid
@@ -90,8 +90,8 @@ def main():
         ok, reason = passes_filters(market)
         if ok:
             # Attach computed fields for downstream steps
-            yes_bid = float(market.get("yes_bid") or 0)
-            yes_ask = float(market.get("yes_ask") or 0)
+            yes_bid = float(market.get("yes_bid_dollars") or 0)
+            yes_ask = float(market.get("yes_ask_dollars") or 0)
             close_time = parse_close_time(market.get("close_time", ""))
             market["_spread"] = round(yes_ask - yes_bid, 4)
             market["_hours_to_close"] = round(hours_until(close_time), 2)

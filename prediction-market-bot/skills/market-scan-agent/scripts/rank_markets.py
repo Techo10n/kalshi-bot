@@ -48,8 +48,8 @@ def composite_score(market: dict) -> float:
 
 
 def build_result(market: dict) -> dict:
-    yes_bid = float(market.get("yes_bid") or 0)
-    yes_ask = float(market.get("yes_ask") or 0)
+    yes_bid = float(market.get("yes_bid_dollars") or 0)
+    yes_ask = float(market.get("yes_ask_dollars") or 0)
     spread = market.get("_spread", yes_ask - yes_bid)
 
     return {
