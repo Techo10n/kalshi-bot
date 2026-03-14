@@ -66,8 +66,12 @@ def implied_sentiment_probability(bullish_score: float, bearish_score: float) ->
     return bullish_score / total
 
 
-def compare_narrative(markets: list, sentiment: dict, twitter_data: dict, reddit_data: dict, rss_data: dict) -> list:
+def compare_narrative(markets: list, sentiment: dict, twitter_data: dict, reddit_data: dict, rss_data: dict, prices_data: dict = None, weather_data: dict = None) -> list:
     results = []
+    if prices_data is None:
+        prices_data = {}
+    if weather_data is None:
+        weather_data = {}
 
     for market in markets:
         ticker = market["ticker"]
@@ -89,6 +93,9 @@ def compare_narrative(markets: list, sentiment: dict, twitter_data: dict, reddit
 
         raw_sample = get_raw_samples(ticker, twitter_data, reddit_data, rss_data)
 
+        price_info = prices_data.get(ticker, {})
+        weather_info = weather_data.get(ticker, {})
+
         result = {
             "ticker": ticker,
             "title": market.get("title", ""),
@@ -100,6 +107,13 @@ def compare_narrative(markets: list, sentiment: dict, twitter_data: dict, reddit
             "narrative_flags": flags,
             "narrative_edge": narrative_edge,
             "raw_sample": raw_sample,
+            "live_price_summary": price_info.get("summary"),
+            "live_price": price_info.get("live_price"),
+            "price_threshold": price_info.get("threshold"),
+            "price_currently_above": price_info.get("currently_above"),
+            "is_weather_market": weather_info.get("is_weather_market", False),
+            "weather_forecast_summary": weather_info.get("forecast_summary"),
+            "weather_forecast": weather_info.get("forecast"),
         }
         results.append(result)
 
@@ -124,9 +138,11 @@ def main():
     twitter_data = load_json(DATA_DIR / "raw_twitter.json")
     reddit_data = load_json(DATA_DIR / "raw_reddit.json")
     rss_data = load_json(DATA_DIR / "raw_rss.json")
+    prices_data = load_json(DATA_DIR / "raw_prices.json")
+    weather_data = load_json(DATA_DIR / "raw_weather.json")
 
     logger.info(f"Comparing narrative vs price for {len(scan)} markets...")
-    results = compare_narrative(scan, sentiment, twitter_data, reddit_data, rss_data)
+    results = compare_narrative(scan, sentiment, twitter_data, reddit_data, rss_data, prices_data, weather_data)
 
     flagged = [r for r in results if r["narrative_flags"]]
     logger.info(f"Markets with narrative flags: {len(flagged)}/{len(results)}")

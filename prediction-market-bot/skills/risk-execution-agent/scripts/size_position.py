@@ -16,10 +16,14 @@ DATA_DIR = Path(__file__).parents[3] / "data"
 OUTPUT = DATA_DIR / "sized_positions.json"
 
 KELLY_MULTIPLIER = 0.25
-MAX_SINGLE_TRADE_PCT = 0.05
-MIN_BET_DOLLARS = 10.0
-MIN_CONFIDENCE = 0.65
-MIN_EDGE = 0.05
+MAX_SINGLE_TRADE_PCT = 0.10  # cap at 10% per trade (allows meaningful bets on small balance)
+MIN_BET_DOLLARS = 1.0        # Kalshi minimum is 1 contract; $1 keeps risk proportional
+MIN_CONFIDENCE = 0.50
+MIN_EDGE = 0.03
+# Weather preference: non-weather markets must beat the best weather expected return by this
+# fraction. E.g. 0.15 means a non-weather trade needs 15% better expected return than the
+# top weather trade to be preferred over it.
+WEATHER_PREFERENCE_GAP = 0.15
 
 
 def kelly_fraction(edge: float, confidence: float, yes_price: float, signal: str) -> float:
@@ -40,6 +44,11 @@ def kelly_fraction(edge: float, confidence: float, yes_price: float, signal: str
     return (abs(edge) * confidence) / denom
 
 
+def _expected_return(edge: float, confidence: float) -> float:
+    """Simple expected return proxy: edge × confidence."""
+    return abs(edge) * confidence
+
+
 def size_positions(predictions: list, portfolio_state: dict) -> list:
     available = portfolio_state.get("available_balance", 0.0)
     portfolio_value = portfolio_state.get("portfolio_value", available)
@@ -50,6 +59,15 @@ def size_positions(predictions: list, portfolio_state: dict) -> list:
         logger.warning(f"Execution blocked: {reason}. No positions sized.")
         return []
 
+    # Find the best expected return among weather markets to use as preference baseline
+    best_weather_er = 0.0
+    for pred in predictions:
+        if not pred.get("is_weather_market"):
+            continue
+        er = _expected_return(pred.get("edge", 0.0), pred.get("confidence", 0.0))
+        if er > best_weather_er:
+            best_weather_er = er
+
     sized = []
     for pred in predictions:
         ticker = pred["ticker"]
@@ -57,6 +75,7 @@ def size_positions(predictions: list, portfolio_state: dict) -> list:
         edge = pred.get("edge", 0.0)
         signal = pred.get("signal", "PASS")
         yes_price = pred.get("yes_price", 0.5)
+        is_weather = pred.get("is_weather_market", False)
 
         # Re-check hard rules
         if signal == "PASS":
@@ -68,6 +87,18 @@ def size_positions(predictions: list, portfolio_state: dict) -> list:
         if abs(edge) < MIN_EDGE:
             logger.info(f"  {ticker}: edge {edge:.3f} < {MIN_EDGE} — skipping")
             continue
+
+        # Weather preference gate: non-weather markets must beat best weather expected return
+        # by WEATHER_PREFERENCE_GAP (15%) to proceed when good weather trades exist.
+        if not is_weather and best_weather_er > 0:
+            er = _expected_return(edge, confidence)
+            required_er = best_weather_er * (1.0 + WEATHER_PREFERENCE_GAP)
+            if er < required_er:
+                logger.info(
+                    f"  {ticker}: non-weather er={er:.4f} < required {required_er:.4f} "
+                    f"(weather_baseline={best_weather_er:.4f} + {WEATHER_PREFERENCE_GAP*100:.0f}%) — skipping"
+                )
+                continue
 
         kf = kelly_fraction(edge, confidence, yes_price, signal)
         kf_quarter = kf * KELLY_MULTIPLIER

@@ -44,7 +44,7 @@ Bullish sentiment score: {bullish_score} (0-1, higher=more bullish)
 Bearish sentiment score: {bearish_score} (0-1, higher=more bearish)
 Hours until market closes: {hours_to_close}
 Narrative flags: {narrative_flags}
-
+{live_price_line}{weather_forecast_line}
 Top 3 news/social snippets:
 {snippets}
 
@@ -82,6 +82,18 @@ def call_claude(client, market: dict, xgb_prob: float, research: dict) -> dict:
         f"  {i+1}. {s}" for i, s in enumerate(research.get("raw_sample", [])[:3])
     ) or "  (no snippets available)"
 
+    live_price_summary = research.get("live_price_summary")
+    live_price_line = (
+        f"LIVE ASSET PRICE: {live_price_summary}\n"
+        if live_price_summary else ""
+    )
+
+    weather_forecast_summary = research.get("weather_forecast_summary")
+    weather_forecast_line = (
+        f"WEATHER FORECAST (GraphCast/Open-Meteo):\n{weather_forecast_summary}\n"
+        if weather_forecast_summary else ""
+    )
+
     user_msg = USER_TEMPLATE.format(
         title=market.get("title", ""),
         yes_price=market.get("yes_price", 0.5),
@@ -90,12 +102,14 @@ def call_claude(client, market: dict, xgb_prob: float, research: dict) -> dict:
         bearish_score=round(research.get("bearish_score", 0.0), 3),
         hours_to_close=round(market.get("hours_to_close", 720), 1),
         narrative_flags=research.get("narrative_flags", []),
+        live_price_line=live_price_line,
+        weather_forecast_line=weather_forecast_line,
         snippets=snippets,
     )
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=256,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],

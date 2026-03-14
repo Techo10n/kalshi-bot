@@ -27,6 +27,16 @@ import sys
 import time
 from pathlib import Path
 
+# Load .env / .env.local credentials before any agent code runs
+try:
+    from dotenv import load_dotenv
+    _env_file = Path(__file__).parents[1] / ".env.local"
+    if not _env_file.exists():
+        _env_file = Path(__file__).parents[1] / ".env"
+    load_dotenv(_env_file, override=False)
+except ImportError:
+    pass  # python-dotenv not installed; rely on env already being set
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",

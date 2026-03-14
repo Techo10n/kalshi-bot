@@ -13,9 +13,19 @@ import logging
 import os
 import random
 import time
+import uuid
 from pathlib import Path
 
 import requests
+
+try:
+    from dotenv import load_dotenv
+    _env = Path(__file__).parents[3] / ".env.local"
+    if not _env.exists():
+        _env = Path(__file__).parents[3] / ".env"
+    load_dotenv(_env, override=False)
+except ImportError:
+    pass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -23,16 +33,29 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parents[3] / "data"
 EXEC_LOG = DATA_DIR / "execution_log.json"
 
-BASE_URL = "https://trading-api.kalshi.com/trade-api/v2"
+BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+BASE_PATH = "/trade-api/v2"
 
 
-def load_private_key(key_path: str):
+def load_private_key():
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.backends import default_backend
-    with open(key_path, "rb") as f:
+
+    key_content = os.environ.get("KALSHI_PRIVATE_KEY", "")
+    if key_content:
+        key_content = key_content.replace("\\n", "\n")
         return serialization.load_pem_private_key(
-            f.read(), password=None, backend=default_backend()
+            key_content.encode(), password=None, backend=default_backend()
         )
+
+    key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
+    if key_path:
+        with open(key_path, "rb") as f:
+            return serialization.load_pem_private_key(
+                f.read(), password=None, backend=default_backend()
+            )
+
+    raise EnvironmentError("Set KALSHI_PRIVATE_KEY or KALSHI_PRIVATE_KEY_PATH")
 
 
 def sign_request(access_key: str, private_key, method: str, path: str) -> dict:
@@ -42,7 +65,7 @@ def sign_request(access_key: str, private_key, method: str, path: str) -> dict:
     msg_string = timestamp_ms + method.upper() + path
     signature = private_key.sign(
         msg_string.encode("utf-8"),
-        padding.PKCS1v15(),
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
         hashes.SHA256(),
     )
     return {
@@ -56,7 +79,7 @@ def sign_request(access_key: str, private_key, method: str, path: str) -> dict:
 def place_order_api(access_key: str, private_key, payload: dict, max_retries: int = 3) -> dict:
     path = "/portfolio/orders"
     for attempt in range(max_retries):
-        headers = sign_request(access_key, private_key, "POST", path)
+        headers = sign_request(access_key, private_key, "POST", BASE_PATH + path)
         try:
             resp = requests.post(BASE_URL + path, headers=headers, json=payload, timeout=15)
         except requests.RequestException as e:
@@ -71,8 +94,12 @@ def place_order_api(access_key: str, private_key, payload: dict, max_retries: in
             logger.warning(f"Rate limited — waiting {wait:.1f}s")
             time.sleep(wait)
         elif resp.status_code == 400:
-            logger.error(f"Bad request for {payload.get('ticker')}: {resp.text[:300]}")
-            return {"error": f"400: {resp.text[:200]}"}
+            try:
+                err_detail = resp.json().get("error", resp.text[:200])
+            except Exception:
+                err_detail = resp.text[:200]
+            logger.error(f"Bad request for {payload.get('ticker')}: {err_detail}")
+            return {"error": f"400: {err_detail}"}
         elif resp.status_code == 403:
             logger.error("Auth failed (403) — check KALSHI_ACCESS_KEY and private key")
             return {"error": "403 auth failed"}
@@ -97,13 +124,14 @@ def place_orders(positions: list, dry_run: bool = False) -> list:
     access_key = os.environ.get("KALSHI_ACCESS_KEY")
     key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
 
-    if not dry_run and (not access_key or not key_path):
-        logger.error("Missing KALSHI_ACCESS_KEY or KALSHI_PRIVATE_KEY_PATH")
+    has_key = bool(os.environ.get("KALSHI_PRIVATE_KEY") or os.environ.get("KALSHI_PRIVATE_KEY_PATH"))
+    if not dry_run and (not access_key or not has_key):
+        logger.error("Missing KALSHI_ACCESS_KEY or KALSHI_PRIVATE_KEY / KALSHI_PRIVATE_KEY_PATH")
         raise EnvironmentError("Kalshi credentials required for live trading")
 
     private_key = None
-    if not dry_run and key_path:
-        private_key = load_private_key(key_path)
+    if not dry_run and has_key:
+        private_key = load_private_key()
 
     exec_log = load_exec_log()
     new_entries = []
@@ -115,7 +143,7 @@ def place_orders(positions: list, dry_run: bool = False) -> list:
         yes_price_cents = pos["yes_price_cents"]
         bet_size = pos["bet_size"]
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        client_order_id = f"bot-{ticker}-{int(time.time())}"
+        client_order_id = f"bot-{uuid.uuid4().hex[:12]}"
 
         side = "yes" if signal == "BUY_YES" else "no"
         payload = {

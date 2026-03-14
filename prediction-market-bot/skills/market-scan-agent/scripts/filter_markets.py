@@ -5,13 +5,17 @@ Reads data/raw_markets.json and applies liquidity/timing filters.
 Saves qualifying markets to data/filtered_markets.json.
 
 Filters applied (ALL must pass):
-  - 24h volume (dollar) >= $500
-  - open interest (dollar) >= $1000
+  - 24h volume (dollar) >= $500  (weather: $100)
+  - open interest (dollar) >= $1000  (weather: $200)
   - spread <= $0.08
   - time to close: 1–720 hours from now
+
+Weather markets use relaxed thresholds because they have clear objective resolution
+criteria (GraphCast forecasts) and don't need social signal volume to trade well.
 """
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +27,25 @@ MIN_OPEN_INTEREST = 1000.0  # $1000 minimum open interest
 MAX_SPREAD = 0.08           # $0.08 maximum bid-ask spread
 MIN_HOURS_TO_CLOSE = 1.0
 MAX_HOURS_TO_CLOSE = 720.0
+
+# Relaxed thresholds for weather markets
+WEATHER_MIN_VOLUME_24H = 100.0
+WEATHER_MIN_OPEN_INTEREST = 200.0
+
+WEATHER_KEYWORDS = {
+    "temperature", "temp", "degrees", "high", "low", "heat", "cold",
+    "snow", "snowfall", "rain", "rainfall", "precipitation", "precip",
+    "wind", "gust", "humidity", "fog", "frost", "weather",
+}
+
+
+def _is_weather_market(market: dict) -> bool:
+    category = (market.get("category") or "").lower()
+    title = (market.get("title") or "").lower()
+    subtitle = (market.get("subtitle") or "").lower()
+    if "weather" in category:
+        return True
+    return any(kw in f"{title} {subtitle}" for kw in WEATHER_KEYWORDS)
 
 
 def parse_close_time(close_time_str: str) -> datetime | None:
@@ -42,15 +65,18 @@ def hours_until(dt: datetime) -> float:
 
 def passes_filters(market: dict) -> tuple[bool, str]:
     """Returns (passes, reason_if_rejected)."""
+    weather = _is_weather_market(market)
+    min_vol = WEATHER_MIN_VOLUME_24H if weather else MIN_VOLUME_24H
+    min_oi = WEATHER_MIN_OPEN_INTEREST if weather else MIN_OPEN_INTEREST
 
     # 24h dollar volume
     vol_24h = float(market.get("volume_24h_fp") or 0)
-    if vol_24h < MIN_VOLUME_24H:
+    if vol_24h < min_vol:
         return False, f"low_volume_24h={vol_24h:.0f}"
 
     # Open interest
     oi = float(market.get("open_interest_fp") or 0)
-    if oi < MIN_OPEN_INTEREST:
+    if oi < min_oi:
         return False, f"low_open_interest={oi:.0f}"
 
     # Spread (field names use _dollars suffix in Kalshi v2 API)
@@ -97,6 +123,7 @@ def main():
             market["_hours_to_close"] = round(hours_until(close_time), 2)
             market["_vol_24h_fp"] = float(market.get("volume_24h_fp") or 0)
             market["_oi_fp"] = float(market.get("open_interest_fp") or 0)
+            market["_is_weather_market"] = _is_weather_market(market)
             passed.append(market)
         else:
             rejection_reasons[reason.split("=")[0]] = rejection_reasons.get(reason.split("=")[0], 0) + 1

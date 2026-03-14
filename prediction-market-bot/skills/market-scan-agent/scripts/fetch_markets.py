@@ -12,6 +12,7 @@ from pathlib import Path
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 OUTPUT_FILE = Path(__file__).parents[3] / "data" / "raw_markets.json"
+CACHE_MAX_AGE_SECONDS = 3600  # re-use raw_markets.json if it's less than 1 hour old
 
 
 def fetch_all_markets() -> list[dict]:
@@ -47,9 +48,20 @@ def fetch_all_markets() -> list[dict]:
 
 
 def main():
-    print(f"Fetching open markets from Kalshi API...")
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+    # Use cached data if it's fresh enough
+    if OUTPUT_FILE.exists():
+        age = time.time() - OUTPUT_FILE.stat().st_mtime
+        if age < CACHE_MAX_AGE_SECONDS:
+            cached = json.loads(OUTPUT_FILE.read_text())
+            print(
+                f"  Using cached raw_markets.json ({len(cached)} markets, "
+                f"{age/60:.0f}m old — re-fetch after {CACHE_MAX_AGE_SECONDS//60}m)"
+            )
+            return cached
+
+    print(f"Fetching open markets from Kalshi API...")
     markets = fetch_all_markets()
 
     with open(OUTPUT_FILE, "w") as f:

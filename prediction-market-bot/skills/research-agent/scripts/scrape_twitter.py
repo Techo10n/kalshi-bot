@@ -18,6 +18,15 @@ from pathlib import Path
 
 import requests
 
+try:
+    from dotenv import load_dotenv
+    _env = Path(__file__).parents[3] / ".env.local"
+    if not _env.exists():
+        _env = Path(__file__).parents[3] / ".env"
+    load_dotenv(_env, override=False)
+except ImportError:
+    pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 

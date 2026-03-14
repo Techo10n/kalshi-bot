@@ -16,24 +16,46 @@ from pathlib import Path
 
 import requests
 
+try:
+    from dotenv import load_dotenv
+    _env = Path(__file__).parents[3] / ".env.local"
+    if not _env.exists():
+        _env = Path(__file__).parents[3] / ".env"
+    load_dotenv(_env, override=False)
+except ImportError:
+    pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parents[3] / "data"
 EXEC_LOG = DATA_DIR / "execution_log.json"
 
-BASE_URL = "https://trading-api.kalshi.com/trade-api/v2"
+BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+BASE_PATH = "/trade-api/v2"
 POLL_INTERVAL_SECONDS = 60
 MAX_WAIT_SECONDS = 600  # 10 minutes
 
 
-def load_private_key(key_path: str):
+def load_private_key():
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.backends import default_backend
-    with open(key_path, "rb") as f:
+
+    key_content = os.environ.get("KALSHI_PRIVATE_KEY", "")
+    if key_content:
+        key_content = key_content.replace("\\n", "\n")
         return serialization.load_pem_private_key(
-            f.read(), password=None, backend=default_backend()
+            key_content.encode(), password=None, backend=default_backend()
         )
+
+    key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
+    if key_path:
+        with open(key_path, "rb") as f:
+            return serialization.load_pem_private_key(
+                f.read(), password=None, backend=default_backend()
+            )
+
+    raise EnvironmentError("Set KALSHI_PRIVATE_KEY or KALSHI_PRIVATE_KEY_PATH")
 
 
 def sign_request(access_key: str, private_key, method: str, path: str) -> dict:
@@ -43,7 +65,7 @@ def sign_request(access_key: str, private_key, method: str, path: str) -> dict:
     msg_string = timestamp_ms + method.upper() + path
     signature = private_key.sign(
         msg_string.encode("utf-8"),
-        padding.PKCS1v15(),
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
         hashes.SHA256(),
     )
     return {
@@ -56,7 +78,7 @@ def sign_request(access_key: str, private_key, method: str, path: str) -> dict:
 
 def get_order_status(order_id: str, access_key: str, private_key) -> dict:
     path = f"/portfolio/orders/{order_id}"
-    headers = sign_request(access_key, private_key, "GET", path)
+    headers = sign_request(access_key, private_key, "GET", BASE_PATH + path)
     try:
         resp = requests.get(BASE_URL + path, headers=headers, timeout=15)
         if resp.status_code == 200:
@@ -69,7 +91,7 @@ def get_order_status(order_id: str, access_key: str, private_key) -> dict:
 
 def cancel_order(order_id: str, access_key: str, private_key) -> bool:
     path = f"/portfolio/orders/{order_id}"
-    headers = sign_request(access_key, private_key, "DELETE", path)
+    headers = sign_request(access_key, private_key, "DELETE", BASE_PATH + path)
     try:
         resp = requests.delete(BASE_URL + path, headers=headers, timeout=15)
         if resp.status_code in (200, 204):
@@ -103,12 +125,12 @@ def monitor_positions(dry_run: bool = False) -> list:
         return log
 
     access_key = os.environ.get("KALSHI_ACCESS_KEY")
-    key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
-    if not access_key or not key_path:
+    has_key = bool(os.environ.get("KALSHI_PRIVATE_KEY") or os.environ.get("KALSHI_PRIVATE_KEY_PATH"))
+    if not access_key or not has_key:
         logger.error("Missing Kalshi credentials — cannot monitor orders")
         return log
 
-    private_key = load_private_key(key_path)
+    private_key = load_private_key()
     logger.info(f"Monitoring {len(pending)} open orders (max {MAX_WAIT_SECONDS//60} minutes)...")
 
     # Build index for fast lookup

@@ -17,10 +17,11 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-CONFIDENCE_THRESHOLD = 0.65
+CONFIDENCE_THRESHOLD = 0.50
 ALIGNMENT_AGREE = 1.2
 ALIGNMENT_DISAGREE = 0.8
 ALIGNMENT_NEUTRAL = 1.0
+WEATHER_CONFIDENCE_BONUS = 0.08  # extra confidence for weather markets with GraphCast data
 
 
 def sentiment_alignment(
@@ -50,10 +51,16 @@ def compute_confidence(
     yes_price: float,
     bullish_score: float,
     bearish_score: float,
+    is_weather_market: bool = False,
+    has_weather_forecast: bool = False,
 ) -> float:
     edge = abs(final_probability - yes_price)
     alignment = sentiment_alignment(final_probability, yes_price, bullish_score, bearish_score)
     confidence = (edge * 2) * alignment
+    # Weather markets with GraphCast forecast data get a confidence bonus — the forecast
+    # is a high-quality, objective signal that reduces uncertainty.
+    if is_weather_market and has_weather_forecast:
+        confidence += WEATHER_CONFIDENCE_BONUS
     return min(confidence, 1.0)
 
 
@@ -79,8 +86,14 @@ def evaluate_confidence(
         research = research_index.get(ticker, {})
         bullish_score = research.get("bullish_score", 0.0)
         bearish_score = research.get("bearish_score", 0.0)
+        is_weather_market = research.get("is_weather_market", False)
+        has_weather_forecast = bool(research.get("weather_forecast_summary"))
 
-        conf = compute_confidence(final_probability, yes_price, bullish_score, bearish_score)
+        conf = compute_confidence(
+            final_probability, yes_price, bullish_score, bearish_score,
+            is_weather_market=is_weather_market,
+            has_weather_forecast=has_weather_forecast,
+        )
 
         record = {
             "ticker": ticker,
@@ -95,6 +108,7 @@ def evaluate_confidence(
             "edge": round(final_probability - yes_price, 4),
             "bullish_score": bullish_score,
             "bearish_score": bearish_score,
+            "is_weather_market": is_weather_market,
         }
 
         if conf >= CONFIDENCE_THRESHOLD:
@@ -112,10 +126,10 @@ def main():
             return json.loads(p.read_text())
         return []
 
+    DATA_DIR = Path(__file__).parents[3] / "data"
+
     features_data = load_json(DATA_DIR / "features.json")
     research_list = load_json(DATA_DIR / "research_results.json")
-
-    DATA_DIR = Path(__file__).parents[3] / "data"
 
     # This is normally called from run_prediction.py with calibrated data
     # Standalone: load from temp if available
@@ -133,7 +147,6 @@ def main():
     return passing, filtered
 
 
-# Fix DATA_DIR reference above (re-declare at module level)
 DATA_DIR = Path(__file__).parents[3] / "data"
 
 if __name__ == "__main__":

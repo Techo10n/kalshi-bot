@@ -21,6 +21,15 @@ from pathlib import Path
 # Add scripts dir to path so we can import sibling modules
 sys.path.insert(0, str(Path(__file__).parent))
 
+try:
+    from dotenv import load_dotenv
+    _env = Path(__file__).parents[2] / ".env.local"
+    if not _env.exists():
+        _env = Path(__file__).parents[2] / ".env"
+    load_dotenv(_env, override=False)
+except ImportError:
+    pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -66,20 +75,24 @@ def main():
     check_prerequisites()
 
     has_twitter = bool(os.environ.get("TWITTER_BEARER_TOKEN")) and not args.no_twitter
-    has_reddit = (
-        bool(os.environ.get("REDDIT_CLIENT_ID"))
-        and bool(os.environ.get("REDDIT_CLIENT_SECRET"))
-        and not args.no_reddit
-    )
+    # Reddit uses Arctic Shift (public API — no credentials needed)
+    has_reddit = not args.no_reddit
 
     if not has_twitter:
         reason = "--no-twitter flag" if args.no_twitter else "no TWITTER_BEARER_TOKEN"
         logger.warning(f"Twitter: SKIPPED ({reason})")
     if not has_reddit:
-        reason = "--no-reddit flag" if args.no_reddit else "missing REDDIT_CLIENT_ID/SECRET"
-        logger.warning(f"Reddit: SKIPPED ({reason})")
+        logger.warning("Reddit: SKIPPED (--no-reddit flag)")
 
     print("\n=== RESEARCH AGENT PIPELINE ===")
+
+    # Step 0a: Real-time asset prices (BTC, ETH, etc.)
+    import scrape_prices
+    run_step("Step 0a: Live Prices", scrape_prices.main)
+
+    # Step 0b: Weather forecasts (Open-Meteo / GraphCast)
+    import scrape_weather
+    run_step("Step 0b: Weather Forecasts", scrape_weather.main)
 
     # Step 1: Twitter
     import scrape_twitter
